@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Course Market — 16 Slots</title>
+  <style>
+    :root{--card-bg:#fff;--page-bg:#f3f4f6;--accent:#111827}
+    *{box-sizing:border-box;font-family:Inter,system-ui,Segoe UI,Arial}
+    body{margin:0;background:var(--page-bg);color:var(--accent);padding:20px}
+    header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+    header h1{font-size:18px;margin:0}
+    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px}
+
+    .card{background:var(--card-bg);border-radius:12px;padding:12px;position:relative;box-shadow:0 6px 18px rgba(16,24,40,0.06)}
+    .thumb{width:100%;height:140px;border-radius:8px;background:#e5e7eb;display:flex;align-items:center;justify-content:center;overflow:hidden}
+    .thumb img{width:100%;height:100%;object-fit:cover}
+    .meta{margin-top:8px}
+    .price{font-weight:700;font-size:16px;margin-top:6px}
+    .small{font-size:12px;color:#6b7280}
+
+    .controls{display:flex;gap:6px;margin-top:8px}
+    .btn{padding:8px 10px;border-radius:8px;border:1px solid #d1d5db;background:white;cursor:pointer;font-weight:600}
+    .upload{font-size:12px;color:#374151}
+
+    /* three-dot menu */
+    .menu-btn{position:absolute;top:10px;right:10px;width:36px;height:36px;border-radius:999px;background:transparent;border:none;cursor:pointer}
+    .dots{display:inline-block;vertical-align:middle}
+    .menu{position:absolute;top:44px;right:10px;background:white;border-radius:8px;box-shadow:0 8px 24px rgba(15,23,42,0.12);padding:6px;display:none}
+    .menu a{display:block;padding:8px 10px;text-decoration:none;color:#111827;font-weight:600}
+
+    /* PayPal container styling */
+    .paypal-wrap{margin-top:8px}
+
+    footer{margin-top:18px;text-align:center;color:#6b7280;font-size:13px}
+
+    /* responsive small */
+    @media (max-width:420px){body{padding:12px}.thumb{height:120px}}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Course Market — 16 Slots</h1>
+    <div class="small">Upload course photo & PDF, set price (USD). Click to pay → PDF opens.</div>
+  </header>
+
+  <div class="grid" id="grid"></div>
+
+  <footer>Tip: Replace <code>YOUR_PAYPAL_CLIENT_ID</code> in the PayPal script with your client ID and host this file via HTTPS for PayPal to work.</footer>
+
+
+  <!-- PayPal SDK - replace YOUR_PAYPAL_CLIENT_ID with your real client id -->
+  <script src="https://www.paypal.com/sdk/js?client-id=YOUR_PAYPAL_CLIENT_ID&currency=USD"></script>
+
+  <script>
+    // --- Configuration ---
+    const SLOTS = 16;
+
+    // Utility: create element helper
+    function el(tag, attrs={}, ...children){
+      const e = document.createElement(tag);
+      for(const k in attrs){
+        if(k.startsWith('on')) e.addEventListener(k.slice(2), attrs[k]);
+        else if(k==='html') e.innerHTML = attrs[k];
+        else e.setAttribute(k, attrs[k]);
+      }
+      for(const c of children) if(c) e.appendChild(typeof c==='string'?document.createTextNode(c):c);
+      return e;
+    }
+
+    // Build slot cards
+    const grid = document.getElementById('grid');
+    for(let i=0;i<SLOTS;i++) grid.appendChild(createCard(i+1));
+
+    function createCard(index){
+      const card = el('div',{class:'card'});
+
+      // three-dot menu
+      const menuBtn = el('button',{class:'menu-btn', onclick:() => {menu.style.display = menu.style.display === 'block' ? 'none' : 'block'} }, el('span',{class:'dots', html:'&#8942;'}));
+      const menu = el('div',{class:'menu'}, el('a',{href:'#', onclick:(e)=>{e.preventDefault(); downloadPdf(); menu.style.display='none'}}, 'Save PDF to device'));
+      card.appendChild(menuBtn); card.appendChild(menu);
+
+      // thumbnail area
+      const thumb = el('div',{class:'thumb'});
+      const img = el('img',{alt:'Course image', src:''});
+      thumb.appendChild(img);
+      card.appendChild(thumb);
+
+      // inputs
+      const meta = el('div',{class:'meta'});
+      const title = el('div',{}, `Slot #${index}`);
+      const priceElm = el('div',{class:'price', html:'$<span class="price-val">0.00</span>'});
+      const small = el('div',{class:'small'}, 'Set price and upload PDF');
+
+      meta.appendChild(title); meta.appendChild(priceElm); meta.appendChild(small);
+      card.appendChild(meta);
+
+      // file inputs hidden
+      const imgInput = el('input',{type:'file', accept:'image/*'});
+      const pdfInput = el('input',{type:'file', accept:'application/pdf'});
+
+      // control buttons
+      const controls = el('div',{class:'controls'});
+      const imgBtn = el('button',{class:'btn upload', onclick:()=> imgInput.click()}, 'Upload Image');
+      const pdfBtn = el('button',{class:'btn upload', onclick:()=> pdfInput.click()}, 'Upload PDF');
+      const priceInput = el('input',{type:'number', min:'0', step:'0.01', placeholder:'Price (USD)', style:'padding:8px;border-radius:8px;border:1px solid #d1d5db'});
+      controls.appendChild(imgBtn); controls.appendChild(pdfBtn); controls.appendChild(priceInput);
+
+      card.appendChild(controls);
+
+      // PayPal / Demo pay area
+      const paypalWrap = el('div',{class:'paypal-wrap'});
+      const demoPay = el('button',{class:'btn', onclick:()=> demoPayAction()}, 'Demo Pay (test)');
+      const paypalContainer = el('div',{id:`paypal-${index}`});
+      paypalWrap.appendChild(paypalContainer);
+      paypalWrap.appendChild(demoPay);
+      card.appendChild(paypalWrap);
+
+      // state
+      let pdfBlobURL = null;
+
+      imgInput.addEventListener('change', ev=>{
+        const f = ev.target.files[0];
+        if(!f) return;
+        img.src = URL.createObjectURL(f);
+      });
+
+      pdfInput.addEventListener('change', ev=>{
+        const f = ev.target.files[0];
+        if(!f) return;
+        if(pdfBlobURL) URL.revokeObjectURL(pdfBlobURL);
+        pdfBlobURL = URL.createObjectURL(f);
+        menu.querySelector('a').href = pdfBlobURL; // update menu link
+        menu.querySelector('a').setAttribute('download', f.name || ('course-'+index+'.pdf'));
+        small.textContent = `PDF uploaded: ${f.name}`;
+      });
+
+      priceInput.addEventListener('input', ()=>{
+        const v = parseFloat(priceInput.value||0).toFixed(2);
+        priceElm.querySelector('.price-val').textContent = v;
+      });
+
+      // Demo pay action (no real money). Opens PDF on "success".
+      function demoPayAction(){
+        const price = parseFloat(priceInput.value||0).toFixed(2);
+        if(!pdfBlobURL){ alert('Upload the course PDF first.'); return; }
+        if(price<=0){ alert('Set a price (USD) greater than 0.'); return; }
+        // simulate payment flow
+        if(confirm(`This is a DEMO payment of $${price}. Continue?`)){
+          // open PDF in new tab
+          window.open(pdfBlobURL, '_blank');
+        }
+      }
+
+      // PayPal button render
+      // Note: PayPal requires this page to be hosted on HTTPS and a valid client-id.
+      try {
+        if(window.paypal){
+          paypal.Buttons({
+            style:{layout:'vertical',shape:'rect'},
+            createOrder: function(data, actions){
+              const amt = parseFloat(priceInput.value||0).toFixed(2);
+              if(amt<=0){ alert('Set a price greater than 0 to enable PayPal.'); return; }
+              return actions.order.create({purchase_units:[{amount:{value:amt}}]});
+            },
+            onApprove: function(data, actions){
+              return actions.order.capture().then(function(details){
+                // payment successful — open the uploaded PDF
+                if(!pdfBlobURL){ alert('Payment completed but no PDF uploaded.'); return; }
+                window.open(pdfBlobURL, '_blank');
+              });
+            },
+            onError: function(err){
+              console.error('PayPal error', err); alert('PayPal error - see console');
+            }
+          }).render(`#${paypalContainer.id}`);
+        }
+      } catch(e){ console.warn('PayPal not available (remember to replace client id).', e); }
+
+      // download function used by three-dot menu
+      function downloadPdf(){
+        if(!pdfBlobURL){ alert('No PDF uploaded yet.'); return; }
+        const a = document.createElement('a');
+        a.href = pdfBlobURL;
+        a.download = 'course-'+index+'.pdf';
+        document.body.appendChild(a); a.click(); a.remove();
+      }
+
+      // click outside to close menu
+      document.addEventListener('click', (ev)=>{ if(!card.contains(ev.target)) menu.style.display='none' });
+
+      return card;
+    }
+
+    // --- Notes for the user ---
+    console.log('Course Market loaded. Replace the PayPal client-id in the script tag with your own. Host via HTTPS.');
+  </script>
+</body>
+</html>
